@@ -68,3 +68,14 @@ This section has moved here: [https://facebook.github.io/create-react-app/docs/d
 ### `npm run build` fails to minify
 
 This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+
+
+
+
+
+
+
+AUTH_SERVER_URL = 'http://xandemotta.pythonanywhere.com/verificar_acesso'
+PROTECTED_URL = 'http://xandemotta.pythonanywhere.com/protegido'
+http://127.0.0.1:4040
+https://f640-143-137-173-27.ngrok-free.app
