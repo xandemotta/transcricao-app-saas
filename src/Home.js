@@ -9,7 +9,7 @@ const Container = styled.div`
 const Home = () => (
   <Container>
     <h2>Bem-vindo à Página Inicial</h2>
-    <p>Esta é a página inicial do seu aplicativo.</p>
+    <p>App Xande</p>
   </Container>
 );
 

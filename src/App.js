@@ -1,9 +1,11 @@
-// src/App.js
-import React from 'react';
+import React, { useState } from 'react';
 import { BrowserRouter as Router, Route, Routes, Link } from 'react-router-dom';
 import styled from 'styled-components';
 import Home from './Home';
 import MP3ToText from './MP3ToText';
+import Login from './Login';
+import Chat from './Chat';
+import { TranscriptionProvider } from './TranscriptionContext';
 
 const AppContainer = styled.div`
   display: flex;
@@ -37,22 +39,52 @@ const NavLink = styled(Link)`
   }
 `;
 
-const App = () => (
-  <Router>
-    <AppContainer>
-      <Sidebar>
-        <h1>Menu</h1>
-        <NavLink to="/">Home</NavLink>
-        <NavLink to="/mp3-to-text">MP3 para Texto</NavLink>
-      </Sidebar>
-      <Content>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/mp3-to-text" element={<MP3ToText />} />
-        </Routes>
-      </Content>
-    </AppContainer>
-  </Router>
-);
+const App = () => {
+  const [authToken, setAuthToken] = useState(localStorage.getItem('authToken') || '');
+  const [messages, setMessages] = useState([]);
+  
+  const handleLogin = (token) => {
+    setAuthToken(token);
+    localStorage.setItem('authToken', token);
+  };
+
+  const handleLogout = () => {
+    setAuthToken('');
+    localStorage.removeItem('authToken');
+  };
+
+  const addMessage = (message) => {
+    setMessages((prevMessages) => [...prevMessages, message]);
+  };
+
+  return (
+    <Router>
+      <AppContainer>
+        {authToken ? (
+          <>
+            <Sidebar>
+              <h1>Menu</h1>
+              <NavLink to="/">Home</NavLink>
+              <NavLink to="/mp3-to-text">MP3 para Texto</NavLink>
+              <NavLink to="/chat">Chat</NavLink>
+              <button onClick={handleLogout}>Logout</button>
+            </Sidebar>
+            <Content>
+              <TranscriptionProvider>
+                <Routes>
+                  <Route path="/" element={<Home />} />
+                  <Route path="/mp3-to-text" element={<MP3ToText addMessage={addMessage} token={authToken} />} />
+                  <Route path="/chat" element={<Chat messages={messages} setMessages={setMessages} token={authToken} />} />
+                </Routes>
+              </TranscriptionProvider>
+            </Content>
+          </>
+        ) : (
+          <Login onLogin={handleLogin} />
+        )}
+      </AppContainer>
+    </Router>
+  );
+};
 
 export default App;

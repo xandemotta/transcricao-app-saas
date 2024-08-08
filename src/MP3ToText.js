@@ -1,6 +1,6 @@
-// src/MP3ToText.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import styled from 'styled-components';
+import TranscriptionContext from './TranscriptionContext';
 
 const Container = styled.div`
   padding: 2rem;
@@ -31,16 +31,10 @@ const Button = styled.button`
   }
 `;
 
-const FileInput = styled.input`
-  margin-top: 1rem;
-`;
-
-const MP3ToText = () => {
+const MP3ToText = ({ addMessage }) => {
   const [isListening, setIsListening] = useState(false);
-  const [transcription, setTranscription] = useState('');
+  const { transcription, setTranscription } = useContext(TranscriptionContext);
   const [recognizer, setRecognizer] = useState(null);
-  const [audioFile, setAudioFile] = useState(null);
-  const [fileTranscription, setFileTranscription] = useState('');
 
   useEffect(() => {
     if ('webkitSpeechRecognition' in window) {
@@ -70,7 +64,7 @@ const MP3ToText = () => {
     } else {
       alert('Web Speech API is not supported in this browser.');
     }
-  }, []);
+  }, [setTranscription]);
 
   const toggleListening = () => {
     if (recognizer) {
@@ -83,31 +77,10 @@ const MP3ToText = () => {
     }
   };
 
-  const handleFileChange = async (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      setAudioFile(file);
-      
-      // Upload the file to the backend for transcription
-      const formData = new FormData();
-      formData.append('audio', file);
-
-      try {
-        const response = await fetch('http://localhost:5000/transcribe', {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (!response.ok) {
-          throw new Error('Network response was not ok');
-        }
-
-        const result = await response.json();
-        setFileTranscription(result.transcription);
-      } catch (error) {
-        console.error('Error uploading file:', error);
-        setFileTranscription('Erro ao processar o arquivo de áudio.');
-      }
+  const sendToChat = () => {
+    if (addMessage) {
+      addMessage({ role: 'user', content: transcription });
+      setTranscription(''); // Clear transcription after sending
     }
   };
 
@@ -120,12 +93,9 @@ const MP3ToText = () => {
       <TranscriptionBox>
         {transcription || 'Inicie a gravação para ver o texto aqui...'}
       </TranscriptionBox>
-
-      <h2>Converter Arquivo de Áudio para Texto</h2>
-      <FileInput type="file" accept="audio/*" onChange={handleFileChange} />
-      <TranscriptionBox>
-        {fileTranscription || 'Selecione um arquivo de áudio para transcrição...'}
-      </TranscriptionBox>
+      {!isListening && transcription && (
+        <Button onClick={sendToChat}>Enviar para o Chat</Button>
+      )}
     </Container>
   );
 };
