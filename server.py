@@ -3,15 +3,28 @@ from flask_cors import CORS
 import pyaudio
 import io
 import speech_recognition as sr
+from pydub import AudioSegment
 from werkzeug.security import check_password_hash, generate_password_hash
+from flask_sqlalchemy import SQLAlchemy
+
 
 app = Flask(__name__, static_folder='build', static_url_path='')
+from flask_sqlalchemy import SQLAlchemy
+
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://seu_usuario:sua_senha@localhost/transcriptions_db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+db = SQLAlchemy(app)
+
 CORS(app)  # Permite requisições de diferentes origens
 
 # Dados fictícios para simulação (normalmente, isso viria de um banco de dados)
 USERS = {
     'root': generate_password_hash('root')  # Substitua por armazenamento seguro
 }
+# Opcional: Defina o caminho do ffmpeg diretamente
+AudioSegment.converter = "C:\\ffmpeg-7.0.2-essentials_build\\bin\\ffmpeg.exe"
+AudioSegment.ffprobe = "C:\\ffmpeg-7.0.2-essentials_build\\bin\\ffprobe.exe"
 
 # Variável global para armazenar mensagens
 messages = []
@@ -96,14 +109,17 @@ def transcribe():
         if audio_file.filename == '':
             return jsonify({'error': 'No selected file'}), 400
 
-        # Ler o conteúdo do arquivo
+        # Converter MP3 para WAV
         audio_content = audio_file.read()
-        audio_io = io.BytesIO(audio_content)
+        audio = AudioSegment.from_file(io.BytesIO(audio_content), format="mp3")
+        wav_io = io.BytesIO()
+        audio.export(wav_io, format="wav")
+        wav_io.seek(0)
 
         # Usar o reconhecedor de fala
         recognizer = sr.Recognizer()
 
-        with sr.AudioFile(audio_io) as source:
+        with sr.AudioFile(wav_io) as source:
             audio_data = recognizer.record(source)
             transcription = recognizer.recognize_google(audio_data, language='pt-BR')
 
@@ -116,7 +132,6 @@ def transcribe():
     except Exception as e:
         print(f"Erro ao processar o áudio: {e}")
         return jsonify({'error': f'Erro ao processar o áudio: {e}'}), 500
-
 @app.route('/api/send-to-chat', methods=['POST'])
 def send_to_chat():
     global messages  # Garantir que estamos modificando a variável global

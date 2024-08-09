@@ -34,13 +34,13 @@ const Login = ({ onLogin }) => {
 
   const handleLogin = async () => {
     try {
-      const response = await fetch('https://xandemotta.pythonanywhere.com/verificar_acesso', {
+      const response = await fetch('http://localhost:5002/verificar_acesso', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cliente_id: clienteId, senha })
       });
 
-      if (!response.ok) throw new Error('Credenciais inválidas');
+      if (!response.ok) throw new Error('Credenciais inválidass');
 
       const data = await response.json();
       if (data.token) {
