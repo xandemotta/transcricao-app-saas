@@ -1,4 +1,3 @@
-// src/Login.js
 import React, { useState } from 'react';
 import styled from 'styled-components';
 
@@ -34,13 +33,13 @@ const Login = ({ onLogin }) => {
 
   const handleLogin = async () => {
     try {
-      const response = await fetch('http://localhost:5002/verificar_acesso', {
+      const response = await fetch('https://c05c-143-137-173-27.ngrok-free.app/verificar_acesso', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cliente_id: clienteId, senha })
       });
 
-      if (!response.ok) throw new Error('Credenciais inválidass');
+      if (!response.ok) throw new Error('Credenciais inválidas');
 
       const data = await response.json();
       if (data.token) {

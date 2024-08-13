@@ -7,6 +7,7 @@ import Login from './Login';
 import Chat from './Chat';
 import Features from './Features';
 import { TranscriptionProvider } from './TranscriptionContext';
+import Chat2 from './Chat-2';
 
 const AppContainer = styled.div`
   display: flex;
@@ -52,6 +53,7 @@ const App = () => {
   const handleLogout = () => {
     setAuthToken('');
     localStorage.removeItem('authToken');
+    setMessages([]); // Limpa as mensagens ao fazer logout
   };
 
   const addMessage = (message) => {
@@ -68,16 +70,30 @@ const App = () => {
               <NavLink to="/">Home</NavLink>
               <NavLink to="/mp3-to-text">MP3 para Texto</NavLink>
               <NavLink to="/chat">Chat</NavLink>
-              <NavLink to="/features">Features</NavLink>
+              <NavLink to="/features">Featuress</NavLink>
+              <NavLink to="/chat-2">Chat 2</NavLink>
               <button onClick={handleLogout}>Logout</button>
             </Sidebar>
             <Content>
               <TranscriptionProvider>
                 <Routes>
                   <Route path="/" element={<Home />} />
-                  <Route path="/mp3-to-text" element={<MP3ToText addMessage={addMessage} token={authToken} />} />
-                  <Route path="/chat" element={<Chat messages={messages} setMessages={setMessages} token={authToken} />} />
-                  <Route path="/features" element={<Features messages={messages} setMessages={setMessages} token={authToken} />} />
+                  <Route 
+                    path="/mp3-to-text" 
+                    element={<MP3ToText addMessage={addMessage} token={authToken} />} 
+                  />
+                  <Route 
+                    path="/chat" 
+                    element={<Chat messages={messages} addMessage={addMessage} token={authToken} />} 
+                  />
+                  <Route 
+                    path="/features" 
+                    element={<Features messages={messages} addMessage={addMessage} token={authToken} />} 
+                  />
+                  <Route 
+                    path="/chat-2" 
+                    element={<Chat2 messages={messages} addMessage={addMessage} token={authToken} />} 
+                  />
                 </Routes>
               </TranscriptionProvider>
             </Content>

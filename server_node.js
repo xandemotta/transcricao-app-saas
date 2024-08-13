@@ -1,26 +1,55 @@
 const express = require('express');
-const cors = require('cors'); 
-const Transcription = require('./src/models/Transcription');
-const sequelize = require('./src/config/database');
+const cors = require('cors');
 const multer = require('multer');
-const bcrypt = require('bcryptjs');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('ffmpeg-static');
+const Transcription = require('./src/models/Transcription');
 const fs = require('fs');
 const { SpeechClient } = require('@google-cloud/speech');
 const path = require('path');
 const morgan = require('morgan');
 const fileType = require('file-type');
 const stream = require('stream');
-const wav = require('node-wav'); // Adiciona a dependência para leitura de WAV
-const User = require('./src/models/User');
+const wav = require('node-wav');
+const axios = require('axios');
 
+require('dotenv').config();
+const OpenAI = require('openai'); // Use require em vez de import
 
+// Inicialização do cliente OpenAI com a chave da API
+const openai = new OpenAI({
+  organization: "org-EMMNBjUzGgIFF6nILZ5A0MHc",
+  project: "proj_sDfWqBecUcIe7POcT3gJr9PR",
+  apiKey: process.env.OPENAI_API_KEY,  // Certifique-se de que a variável de ambiente OPENAI_API_KEY está configurada corretamente
+});
 
-const senha = 'root';
-const hash = bcrypt.hashSync(senha, 8); // Gera o hash com um fator de custo 8
+async function generateResponse() {
+  try {
+    // Criação de uma conclusão de chat com o modelo GPT-4
+    const response = await openai.chat.completions.create({
+      model: "gpt-4",  // Ajuste o modelo para "gpt-4" ou "gpt-4-turbo" conforme necessário
+      messages: [
+        {
+          role: "system",
+          content: "Você é um especialista de programação, fullstack.",  // Definindo o contexto do assistente
+        },
+      ],
+      temperature: 1,
+      max_tokens: 256,
+      top_p: 1,
+      frequency_penalty: 0,
+      presence_penalty: 0,
+    });
 
-console.log('Hash da senha:', hash);
+    // Exibindo a resposta no console
+    console.log(response.choices[0].message.content);
+  } catch (error) {
+    console.error('Erro ao gerar a resposta:', error.message);
+  }
+}
+
+// Executa a função para gerar uma resposta
+//generateResponse();
 
 
 ffmpeg.setFfmpegPath(ffmpegPath);
@@ -28,133 +57,137 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 const app = express();
 const upload = multer();
 
-app.use(cors({
-    origin: ['https://7a4c-143-137-173-27.ngrok-free.app', 'http://localhost:5002']
-}));
-
+app.use(cors());
 app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'build')));
 
 const client = new SpeechClient();
-// Sincronizar os modelos com o banco de dados
-sequelize.sync({ force: false })
-  .then(() => {
-    console.log('Tabelas sincronizadas com sucesso.');
-  })
-  .catch(err => {
-    console.error('Erro ao sincronizar tabelas:', err);
-  });
+// server.js
+let conversationHistory = [];  // Armazena o histórico completo da conversa como um array de objetos
+let messageCount = 1;  // Contador para enumerar as mensagens
 
-const USERS = {
-  'root': bcrypt.hashSync('root', 8) 
-};
-
-async function criarUsuarioRoot() {
+app.post('/api/chat', async (req, res) => {
   try {
-    const senha = 'root'; // A senha que você quer definir
-    const hash = bcrypt.hashSync(senha, 8); // Gera o hash da senha
+    const { message } = req.body;
 
-    // Cria o usuário com o hash da senha
-    await User.create({
-      username: 'root',
-      password_hash: hash,
-    });
+    // Adiciona a nova mensagem do usuário ao histórico
+    conversationHistory.push({ number: messageCount, role: "Usuário", content: message });
+    messageCount++;
 
-    console.log('Usuário root criado com sucesso.');
+    // Cria o contexto a ser enviado para a IA
+    let context = conversationHistory.map(msg => `${msg.number}. ${msg.role}: ${msg.content}`).join("\n");
+
+    // Chama a API da OpenAI com o histórico completo
+    const response = await axios.post(
+      'https://api.openai.com/v1/chat/completions',
+      {
+        model: "gpt-4",
+        messages: [
+          { role: "system", content: "Você é um assistente que responde conforme o histórico de mensagens." },
+          { role: "user", content: context }
+        ],
+        temperature: 0.7,
+        max_tokens: 256,
+        top_p: 1,
+        frequency_penalty: 0,
+        presence_penalty: 0,
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+      }
+    );
+
+    const assistantResponse = response.data.choices[0].message.content;
+
+    // Adiciona a resposta da IA ao histórico
+    conversationHistory.push({ number: messageCount, role: "Assistente", content: assistantResponse });
+    messageCount++;
+
+    // Retorna a resposta para o frontend
+    res.json({ message: assistantResponse });
   } catch (error) {
-    console.error('Erro ao criar o usuário root:', error);
+    console.error('Erro ao comunicar com a API da OpenAI:', error.message);
+    res.status(500).send('Erro ao comunicar com a API da OpenAI');
   }
+});
+
+// Converter MP3 para WAV
+function convertMp3ToWav(mp3Buffer) {
+    return new Promise((resolve, reject) => {
+        const tempFilePath = path.join(__dirname, 'temp.wav');
+        const bufferStream = new stream.PassThrough();
+        bufferStream.end(mp3Buffer);
+
+        ffmpeg(bufferStream)
+            .inputFormat('mp3')
+            .output(tempFilePath)
+            .on('end', () => {
+                fs.readFile(tempFilePath, (err, data) => {
+                    if (err) return reject(err);
+                    fs.unlink(tempFilePath, () => {});
+                    resolve(data);
+                });
+            })
+            .on('error', (err) => {
+                console.error('Erro no ffmpeg:', err.message);
+                reject(new Error('Erro no ffmpeg: ' + err.message));
+            })
+            .run();
+    });
 }
 
-// Chame a função ao iniciar o servidor
-criarUsuarioRoot();
-app.post('/verificar_acesso', async (req, res) => {
-  const { cliente_id, senha } = req.body;
-
+// Transcrição de áudio
+async function transcribeAudio(audioBuffer) {
   try {
-    // Buscando o usuário no banco de dados
-    const user = await User.findOne({ where: { username: cliente_id } });
+    const audioBytes = audioBuffer.toString('base64');
+    const result = wav.decode(audioBuffer);
+    const sampleRate = result.sampleRate;
 
-    if (user && bcrypt.compareSync(senha, user.password_hash)) {
-      // Senha correta
-      const token = `token_for_${cliente_id}`;
-      res.json({ token });
+    const request = {
+      audio: { content: audioBytes },
+      config: {
+        encoding: 'LINEAR16',
+        sampleRateHertz: sampleRate,
+        languageCode: 'pt-BR', // Usando o código de idioma que você precisa
+      },
+    };
+
+    console.log('Enviando solicitação para Google Speech-to-Text API...');
+
+    const [response] = await client.recognize(request);
+
+    console.log('Resposta da API recebida:', response);
+
+    if (response.results && response.results.length > 0) {
+      const transcription = response.results
+        .map(result => result.alternatives[0].transcript)
+        .join('\n');
+
+      console.log('Transcrição gerada:', transcription.trim());
+      return transcription.trim();
     } else {
-      // Senha incorreta
-      res.status(401).json({ error: 'Credenciais inválidas' });
+      console.error('Nenhum resultado de transcrição disponível.');
+      return '';
     }
   } catch (error) {
-    console.error('Erro durante a verificação de acesso:', error);
-    res.status(500).json({ error: 'Erro interno do servidor' });
+    console.error('Erro na transcrição:', error.message);
+    throw new Error('Erro na transcrição do áudio.');
   }
-});
-
-function verificar_token(token) {
-  return token.startsWith('token_for_') && Object.keys(USERS).some(user => token === `token_for_${user}`);
 }
 
-app.get('/protegido', (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (authHeader && verificar_token(authHeader)) {
-    res.json({ message: 'Você tem acesso ao conteúdo protegido!' });
-  } else {
-    res.status(403).json({ error: 'Acesso negado' });
-  }
-});
 
-function convertMp3ToWav(mp3Buffer) {
-  return new Promise((resolve, reject) => {
-    const tempFilePath = path.join(__dirname, 'temp.wav');
-    const bufferStream = new stream.PassThrough();
-    bufferStream.end(mp3Buffer);
 
-    ffmpeg(bufferStream)
-      .inputFormat('mp3')
-      .output(tempFilePath)
-      .on('end', () => {
-        fs.readFile(tempFilePath, (err, data) => {
-          if (err) return reject(err);
-          fs.unlink(tempFilePath, () => {}); 
-          resolve(data);
-        });
-      })
-      .on('error', (err) => {
-        console.error('Erro no ffmpeg:', err.message);
-        reject(new Error('Erro no ffmpeg: ' + err.message));
-      })
-      .run();
-  });
-}
 
-async function transcribeAudio(audioBuffer) {
-  const audioBytes = audioBuffer.toString('base64');
 
-  const result = wav.decode(audioBuffer); // Decodifica o WAV e obtém informações sobre a taxa de amostragem
-  const sampleRate = result.sampleRate;
-
-  const request = {
-    audio: {
-      content: audioBytes,
-    },
-    config: {
-      encoding: 'LINEAR16',
-      sampleRateHertz: sampleRate, // Use a taxa de amostragem detectada
-      languageCode: 'pt-BR',
-    },
-  };
-
-  const [response] = await client.recognize(request);
-  const transcription = response.results
-    .map(result => result.alternatives[0].transcript)
-    .join('\n');
-  return transcription;
-}
-
+// Rota para transcrição de arquivos
 app.post('/transcribe', upload.single('audio'), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: 'No audio file provided' });
+      return res.status(400).json({ error: 'Nenhum arquivo de áudio fornecido.' });
     }
 
     const audioBuffer = req.file.buffer;
@@ -170,8 +203,13 @@ app.post('/transcribe', upload.single('audio'), async (req, res) => {
       return res.status(400).json({ error: 'Formato de arquivo não suportado. Envie um arquivo MP3 ou WAV.' });
     }
 
-    const transcription = await Transcription.create({ text: transcriptionText });
+    // Adicione um log antes de salvar
+    if (!transcriptionText) {
+      console.error('Transcrição falhou, campo vazio.');
+      return res.status(500).json({ error: 'Falha ao gerar a transcrição.' });
+    }
 
+    const transcription = await Transcription.create({ text: transcriptionText });
     res.json({ transcription: transcription.text });
   } catch (error) {
     console.error(`Erro ao processar o áudio: ${error.message}`);
@@ -179,30 +217,16 @@ app.post('/transcribe', upload.single('audio'), async (req, res) => {
   }
 });
 
-let messages = [];
 
-app.post('/api/send-to-chat', (req, res) => {
-  const { message } = req.body;
-  if (!message) {
-    return res.status(400).json({ error: 'No message provided' });
-  }
-  messages.push({ role: 'user', content: message });
-  console.log(`Message received: ${message}`);
-  res.json({ success: true });
-});
-
-app.get('/api/get-chat-messages', (req, res) => {
-  res.json({ messages });
-});
-
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'build', 'index.html'));
+// Serve o React app
+app.get('/*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'build', 'index.html'));
 });
 
 app.get('/*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'build', req.path));
+    res.sendFile(path.join(__dirname, 'build', req.path));
 });
 
 app.listen(5002, () => {
-  console.log('Servidor rodando em http://localhost:5002');
+    console.log('Servidor rodando em http://localhost:5002');
 });
