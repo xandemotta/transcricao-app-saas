@@ -29,6 +29,7 @@
     "react-router-dom": "^6.26.0",
     "react-scripts": "5.0.1",
     "sequelize": "^6.37.3",
+    "sequelize-cli": "^6.6.2",
     "styled-components": "^6.1.12",
     "web-vitals": "^2.1.4"
   },

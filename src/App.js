@@ -9,6 +9,7 @@ import Features from './Features';
 import CriarConta from './CriarConta';
 import { TranscriptionProvider } from './TranscriptionContext';
 import Chat2 from './Chat-2';
+import Chat3 from './ChatSelector';
 
 const AppContainer = styled.div`
   display: flex;
@@ -45,7 +46,8 @@ const NavLink = styled(Link)`
 const App = () => {
   const [authToken, setAuthToken] = useState(localStorage.getItem('authToken') || '');
   const [messages, setMessages] = useState([]);
-  
+  const userId = 1; // Replace this with actual user ID retrieval logic
+
   const handleLogin = (token) => {
     setAuthToken(token);
     localStorage.setItem('authToken', token);
@@ -54,7 +56,7 @@ const App = () => {
   const handleLogout = () => {
     setAuthToken('');
     localStorage.removeItem('authToken');
-    setMessages([]); // Limpa as mensagens ao fazer logout
+    setMessages([]); // Clear messages on logout
   };
 
   const addMessage = (message) => {
@@ -71,9 +73,10 @@ const App = () => {
               <NavLink to="/">Home</NavLink>
               <NavLink to="/mp3-to-text">MP3 para Texto</NavLink>
               <NavLink to="/chat">Chat</NavLink>
-              <NavLink to="/features">Featuress</NavLink>
+              <NavLink to="/features">Features</NavLink>
               <NavLink to="/chat-2">Chat 2</NavLink>
               <NavLink to="/criar-conta">Criar Conta</NavLink>
+              <NavLink to="/chat-3">Chat 3</NavLink>
               <button onClick={handleLogout}>Logout</button>
             </Sidebar>
             <Content>
@@ -95,6 +98,10 @@ const App = () => {
                   <Route 
                     path="/chat-2" 
                     element={<Chat2 messages={messages} addMessage={addMessage} token={authToken} />} 
+                  />
+                  <Route 
+                    path="/chat-3" 
+                    element={<Chat3 userId={userId} addMessage={addMessage} token={authToken} />} // Pass userId to Chat3
                   />
                   <Route path="/criar-conta" element={<CriarConta />} />
                 </Routes>

@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import styled, { keyframes } from 'styled-components';
 import axios from 'axios';
 
-// Reutilizando o Spinner do Chat
 const spin = keyframes`
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
@@ -176,57 +175,110 @@ const ClearButton = styled.button`
   }
 `;
 
-function Chat2() {
+const Chat2 = ({ token }) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Carregar mensagens do localStorage quando o componente é montado
-  useEffect(() => {
-    const storedMessages = JSON.parse(localStorage.getItem('chatMessages'));
-    if (storedMessages) {
-      setMessages(storedMessages);
-    }
-  }, []);
+  const userId = localStorage.getItem('userId');
 
-  // Salvar mensagens no localStorage sempre que forem atualizadas
+  // Carregar o histórico de mensagens do banco de dados
   useEffect(() => {
-    localStorage.setItem('chatMessages', JSON.stringify(messages));
-  }, [messages]);
+    if (!userId) {
+        setError('User ID não fornecido. Por favor, faça login novamente.');
+        return;
+    }
+    const fetchMessages = async () => {
+        try {
+            const response = await axios.get(`/api/conversas/${userId}`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            const storedMessages = response.data.conversas.map(conversa => ({
+                role: conversa.mensagemUsuario ? 'user' : 'assistant',
+                content: conversa.mensagemUsuario || conversa.mensagemAssistente
+            }));
+            setMessages(storedMessages);
+        } catch (error) {
+            console.error('Erro ao buscar o histórico de conversas:', error.response ? error.response.data : error.message);
+            setError('Erro ao buscar o histórico de conversas. Por favor, tente novamente.');
+        }
+    };
+    fetchMessages();
+}, [userId, token]);
 
   const sendMessage = async () => {
     if (!input.trim()) return;
 
-    const userMessage = { role: "user", content: input };
+    if (!userId) {
+        setError('User ID não fornecido. Por favor, faça login novamente.');
+        return;
+    }
+
+    const userMessage = { role: 'user', content: input };
     setMessages([...messages, userMessage]);
     setInput('');
     setLoading(true);
     setError(null);
 
     try {
-      const response = await axios.post(
-        '/api/chat', 
-        { message: input }, 
-        {
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-      const botMessage = response.data.message;
-      setMessages([...messages, userMessage, { role: "assistant", content: botMessage }]);
-    } catch (error) {
-      console.error('Erro ao se comunicar com o servidor:', error.response ? error.response.data : error.message);
-      setError('Erro ao se comunicar com o servidor. Por favor, tente novamente.');
-    } finally {
-      setLoading(false);
-    }
-  };
+        const response = await axios.post(
+            '/api/chat',
+            {
+                sessionId: userId,
+                message: input,
+                userId: userId,
+            },
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`, // Inclui o token na requisição
+                }
+            }
+        );
 
-  const clearMessages = () => {
-    setMessages([]);
-    localStorage.removeItem('chatMessages');
+        const botMessage = response.data.message;
+        const newMessages = [...messages, userMessage, { role: 'assistant', content: botMessage }];
+        setMessages(newMessages);
+
+        // Salvar a conversa no banco de dados
+        await axios.post('/api/conversas', {
+            userId,
+            messages: newMessages,
+        });
+
+    } catch (error) {
+        console.error('Erro ao se comunicar com o servidor:', error.response ? error.response.data : error.message);
+        setError('Erro ao se comunicar com o servidor. Por favor, tente novamente.');
+    } finally {
+        setLoading(false);
+    }
+};
+
+
+  const clearMessages = async () => {
+    try {
+      if (!userId) {
+        setError('User ID não fornecido. Por favor, faça login novamente.');
+        return;
+      }
+
+      setMessages([]);
+      localStorage.removeItem('chatMessages');
+
+      await axios.delete(`/api/conversas/${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        }
+      });
+
+      setError(null);
+    } catch (error) {
+      console.error('Erro ao deletar o histórico de conversas:', error.response ? error.response.data : error.message);
+      setError('Erro ao deletar o histórico de conversas. Por favor, tente novamente.');
+    }
   };
 
   return (

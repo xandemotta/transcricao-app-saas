@@ -48,22 +48,25 @@ const Login = ({ onLogin }) => {
 
   const handleLogin = async () => {
     try {
-      const response = await fetch('https://c944-143-137-173-27.ngrok-free.app/verificar_acesso', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cliente_id: clienteId, senha })
-      });
+        const response = await fetch('https://c944-143-137-173-27.ngrok-free.app/verificar_acesso', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cliente_id: clienteId, senha })
+        });
 
-      if (!response.ok) throw new Error('Credenciais inválidas');
+        if (!response.ok) throw new Error('Credenciais inválidas');
 
-      const data = await response.json();
-      if (data.token) {
-        onLogin(data.token);
-      }
+        const data = await response.json();
+        if (data.token && data.userId) {
+            onLogin(data.token, data.userId);
+            localStorage.setItem('authToken', data.token); // Armazena o token no localStorage
+            localStorage.setItem('userId', data.userId); // Armazena o userId no localStorage
+        }
     } catch (error) {
-      setError(error.message);
+        setError(error.message);
     }
-  };
+};
+
 
   const handleCreateAccount = () => {
     const token = localStorage.getItem('authToken');
