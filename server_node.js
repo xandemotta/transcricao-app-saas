@@ -1,4 +1,6 @@
 const express = require('express');
+const sequelize = require('./src/config/database');
+const bcrypt = require('bcryptjs');
 const cors = require('cors');
 const multer = require('multer');
 const ffmpeg = require('fluent-ffmpeg');
@@ -12,6 +14,8 @@ const fileType = require('file-type');
 const stream = require('stream');
 const wav = require('node-wav');
 const axios = require('axios');
+const User = require('./src/models/User');
+
 
 require('dotenv').config();
 const OpenAI = require('openai'); // Use require em vez de import
@@ -64,55 +68,66 @@ app.use(express.static(path.join(__dirname, 'build')));
 
 const client = new SpeechClient();
 // server.js
-let conversationHistory = [];  // Armazena o histórico completo da conversa como um array de objetos
-let messageCount = 1;  // Contador para enumerar as mensagens
+let conversations = {};  // Armazena o histórico de conversas por ID de sessão
 
 app.post('/api/chat', async (req, res) => {
-  try {
-    const { message } = req.body;
+  const sessionId = req.body.sessionId || 'default';  // Identifica a sessão do usuário
+  const message = req.body.message;
 
-    // Adiciona a nova mensagem do usuário ao histórico
-    conversationHistory.push({ number: messageCount, role: "Usuário", content: message });
-    messageCount++;
-
-    // Cria o contexto a ser enviado para a IA
-    let context = conversationHistory.map(msg => `${msg.number}. ${msg.role}: ${msg.content}`).join("\n");
-
-    // Chama a API da OpenAI com o histórico completo
-    const response = await axios.post(
-      'https://api.openai.com/v1/chat/completions',
-      {
-        model: "gpt-4",
-        messages: [
-          { role: "system", content: "Você é um assistente que responde conforme o histórico de mensagens." },
-          { role: "user", content: context }
-        ],
-        temperature: 0.7,
-        max_tokens: 256,
-        top_p: 1,
-        frequency_penalty: 0,
-        presence_penalty: 0,
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-        },
-      }
-    );
-
-    const assistantResponse = response.data.choices[0].message.content;
-
-    // Adiciona a resposta da IA ao histórico
-    conversationHistory.push({ number: messageCount, role: "Assistente", content: assistantResponse });
-    messageCount++;
-
-    // Retorna a resposta para o frontend
-    res.json({ message: assistantResponse });
-  } catch (error) {
-    console.error('Erro ao comunicar com a API da OpenAI:', error.message);
-    res.status(500).send('Erro ao comunicar com a API da OpenAI');
+  if (!conversations[sessionId]) {
+    conversations[sessionId] = {
+      history: [],
+      messageCount: 1
+    };
   }
+
+  const conversation = conversations[sessionId];
+
+  // Adiciona a nova mensagem do usuário ao histórico
+  conversation.history.push({ number: conversation.messageCount, role: "Usuário", content: message });
+  conversation.messageCount++;
+
+  // Cria o contexto a ser enviado para a IA
+  let context = conversation.history.map(msg => `${msg.number}. ${msg.role}: ${msg.content}`).join("\n");
+
+  // Chama a API da OpenAI com o histórico completo
+  const response = await axios.post(
+    'https://api.openai.com/v1/chat/completions',
+    {
+      model: "gpt-4",
+      messages: [
+        { role: "system", content: "Você é um assistente que responde conforme o histórico de mensagens." },
+        { role: "user", content: context }
+      ],
+      temperature: 0.7,
+      max_tokens: 256,
+      top_p: 1,
+      frequency_penalty: 0,
+      presence_penalty: 0,
+    },
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+    }
+  );
+
+  const assistantResponse = response.data.choices[0].message.content;
+
+  // Adiciona a resposta da IA ao histórico
+  conversation.history.push({ number: conversation.messageCount, role: "Assistente", content: assistantResponse });
+  conversation.messageCount++;
+
+  // Retorna a resposta para o frontend
+  res.json({ message: assistantResponse });
+});
+
+// Limpa o histórico da sessão
+app.post('/api/clear-chat', (req, res) => {
+  const sessionId = req.body.sessionId || 'default';
+  delete conversations[sessionId];
+  res.json({ success: true });
 });
 
 // Converter MP3 para WAV
@@ -179,10 +194,63 @@ async function transcribeAudio(audioBuffer) {
   }
 }
 
+// Sincronizar os modelos com o banco de dados
+sequelize.sync({ force: false })
+  .then(() => {
+    console.log('Tabelas sincronizadas com sucesso.');
+  })
+  .catch(err => {
+    console.error('Erro ao sincronizar tabelas:', err);
+  });
 
+const USERS = {
+  'root': bcrypt.hashSync('root', 8) 
+};
 
+async function criarUsuarioRoot() {
+  try {
+    const usuarioExistente = await User.findOne({ where: { username: 'root' } });
 
+    if (usuarioExistente) {
+      console.log('O usuário "root" já existe.');
+      return;
+    }
 
+    const usuarioRoot = await User.create({
+      username: 'root',
+      password_hash: 'hash_senha', // Coloque aqui o hash da senha
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+
+    console.log('Usuário "root" criado com sucesso:', usuarioRoot);
+  } catch (error) {
+    console.error('Erro ao criar o usuário root:', error);
+  }
+}
+
+criarUsuarioRoot();
+
+app.post('/verificar_acesso', async (req, res) => {
+  const { cliente_id, senha } = req.body;
+
+  try {
+    // Buscando o usuário no banco de dados
+    const user = await User.findOne({ where: { username: cliente_id } });
+
+    if (user && bcrypt.compareSync(senha, user.password_hash)) {
+      // Senha correta
+      const token = `token_for_${cliente_id}`;
+      res.json({ token });
+    } else {
+      // Senha incorreta
+      res.status(401).json({ error: 'Credenciais inválidas' });
+    }
+  } catch (error) {
+    console.error('Erro durante a verificação de acesso:', error);
+    res.status(500).json({ error: 'Erro interno do servidor' });
+  }
+});
 // Rota para transcrição de arquivos
 app.post('/transcribe', upload.single('audio'), async (req, res) => {
   try {
@@ -216,8 +284,49 @@ app.post('/transcribe', upload.single('audio'), async (req, res) => {
     res.status(500).json({ error: `Erro ao processar o áudio: ${error.message}` });
   }
 });
+let messages = [];
 
+app.post('/api/send-to-chat', (req, res) => {
+  const { message } = req.body;
+  if (!message) {
+    return res.status(400).json({ error: 'No message provided' });
+  }
+  messages.push({ role: 'user', content: message });
+  console.log(`Message received: ${message}`);
+  res.json({ success: true });
+});
 
+app.get('/api/get-chat-messages', (req, res) => {
+  res.json({ messages });
+});
+app.post('/criar-conta', async (req, res) => {
+  const { cliente_id, senha } = req.body;
+
+  try {
+    // Verifica se o usuário já existe
+    const usuarioExistente = await User.findOne({ where: { username: cliente_id } });
+
+    if (usuarioExistente) {
+      return res.status(400).json({ error: 'O usuário já existe.' });
+    }
+
+    // Gera o hash da senha
+    const hashSenha = await bcrypt.hash(senha, 10);
+
+    // Cria o novo usuário
+    const novoUsuario = await User.create({
+      username: cliente_id,
+      password_hash: hashSenha,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+
+    res.status(201).json({ message: 'Conta criada com sucesso.', user: novoUsuario });
+  } catch (error) {
+    console.error('Erro ao criar a conta:', error);
+    res.status(500).json({ error: 'Erro ao criar a conta.' });
+  }
+});
 // Serve o React app
 app.get('/*', (req, res) => {
     res.sendFile(path.join(__dirname, 'build', 'index.html'));

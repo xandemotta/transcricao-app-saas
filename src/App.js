@@ -6,6 +6,7 @@ import MP3ToText from './MP3ToText';
 import Login from './Login';
 import Chat from './Chat';
 import Features from './Features';
+import CriarConta from './CriarConta';
 import { TranscriptionProvider } from './TranscriptionContext';
 import Chat2 from './Chat-2';
 
@@ -72,6 +73,7 @@ const App = () => {
               <NavLink to="/chat">Chat</NavLink>
               <NavLink to="/features">Featuress</NavLink>
               <NavLink to="/chat-2">Chat 2</NavLink>
+              <NavLink to="/criar-conta">Criar Conta</NavLink>
               <button onClick={handleLogout}>Logout</button>
             </Sidebar>
             <Content>
@@ -94,6 +96,7 @@ const App = () => {
                     path="/chat-2" 
                     element={<Chat2 messages={messages} addMessage={addMessage} token={authToken} />} 
                   />
+                  <Route path="/criar-conta" element={<CriarConta />} />
                 </Routes>
               </TranscriptionProvider>
             </Content>
