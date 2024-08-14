@@ -2,22 +2,6 @@ import React, { useState, useEffect } from 'react';
 import styled, { keyframes } from 'styled-components';
 import axios from 'axios';
 
-const spin = keyframes`
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-`;
-
-const Spinner = styled.div`
-  border: 4px solid #f3f3f3;
-  border-top: 4px solid #3498db;
-  border-radius: 50%;
-  width: 25px;
-  height: 25px;
-  animation: ${spin} 2s linear infinite;
-  align-self: flex-end;
-  margin: 0.5rem 0;
-`;
-
 const ChatContainer = styled.div`
   display: flex;
   flex-direction: column;
@@ -180,6 +164,7 @@ const Chat2 = ({ token }) => {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [typingMessage, setTypingMessage] = useState(''); // Para o efeito de digitação
 
   const userId = localStorage.getItem('userId');
 
@@ -190,24 +175,27 @@ const Chat2 = ({ token }) => {
         return;
     }
     const fetchMessages = async () => {
-        try {
-            const response = await axios.get(`/api/conversas/${userId}`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-            const storedMessages = response.data.conversas.map(conversa => ({
-                role: conversa.mensagemUsuario ? 'user' : 'assistant',
-                content: conversa.mensagemUsuario || conversa.mensagemAssistente
-            }));
-            setMessages(storedMessages);
-        } catch (error) {
-            console.error('Erro ao buscar o histórico de conversas:', error.response ? error.response.data : error.message);
-            setError('Erro ao buscar o histórico de conversas. Por favor, tente novamente.');
-        }
+      try {
+        const response = await axios.get(`/api/conversas/${userId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        const storedMessages = response.data.conversas.map(conversa => [
+          { role: 'user', content: conversa.mensagemUsuario },
+          { role: 'assistant', content: conversa.mensagemAssistente }
+        ]).flat();
+    
+        setMessages(storedMessages);
+      } catch (error) {
+        console.error('Erro ao buscar o histórico de conversas:', error.response ? error.response.data : error.message);
+        setError('Erro ao buscar o histórico de conversas. Por favor, tente novamente.');
+      }
     };
     fetchMessages();
-}, [userId, token]);
+  
+  }, [userId, token]);
 
   const sendMessage = async () => {
     if (!input.trim()) return;
@@ -222,6 +210,7 @@ const Chat2 = ({ token }) => {
     setInput('');
     setLoading(true);
     setError(null);
+    setTypingMessage(''); // Resetar a mensagem de digitação
 
     try {
         const response = await axios.post(
@@ -240,56 +229,77 @@ const Chat2 = ({ token }) => {
         );
 
         const botMessage = response.data.message;
-        const newMessages = [...messages, userMessage, { role: 'assistant', content: botMessage }];
-        setMessages(newMessages);
+        let currentText = '';
+        const words = botMessage.split(' ');
+
+        // Simular a digitação palavra por palavra
+        const interval = setInterval(() => {
+          if (words.length === 0) {
+            clearInterval(interval);
+            setMessages(prev => [
+              ...prev,
+              { role: 'assistant', content: currentText },
+            ]);
+            setLoading(false);
+          } else {
+            currentText += words.shift() + ' ';
+            setTypingMessage(currentText);
+          }
+        }, 100); // A cada 100ms, adiciona uma palavra
 
         // Salvar a conversa no banco de dados
         await axios.post('/api/conversas', {
             userId,
-            messages: newMessages,
+            messages: [...messages, userMessage, { role: 'assistant', content: botMessage }],
         });
 
     } catch (error) {
         console.error('Erro ao se comunicar com o servidor:', error.response ? error.response.data : error.message);
         setError('Erro ao se comunicar com o servidor. Por favor, tente novamente.');
-    } finally {
         setLoading(false);
     }
 };
 
-
-  const clearMessages = async () => {
-    try {
-      if (!userId) {
-        setError('User ID não fornecido. Por favor, faça login novamente.');
-        return;
-      }
-
-      setMessages([]);
-      localStorage.removeItem('chatMessages');
-
-      await axios.delete(`/api/conversas/${userId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        }
-      });
-
-      setError(null);
-    } catch (error) {
-      console.error('Erro ao deletar o histórico de conversas:', error.response ? error.response.data : error.message);
-      setError('Erro ao deletar o histórico de conversas. Por favor, tente novamente.');
+const clearMessages = async () => {
+  try {
+    if (!userId) {
+      setError('User ID não fornecido. Por favor, faça login novamente.');
+      return;
     }
-  };
+
+    setMessages([]);
+    localStorage.removeItem('chatMessages');
+
+    // Chama a API para deletar o histórico no backend
+    await axios.delete(`/api/conversas/${userId}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      }
+    });
+
+    // Limpa o estado da sessão no frontend
+    setMessages([]);
+    setError(null);
+  } catch (error) {
+    console.error('Erro ao deletar o histórico de conversas:', error.response ? error.response.data : error.message);
+    setError('Erro ao deletar o histórico de conversas. Por favor, tente novamente.');
+  }
+};
+
 
   return (
     <ChatContainer>
       <ChatDisplay>
         {messages.map((msg, index) => (
           <Message key={index} role={msg.role}>
-            <strong>{msg.role === 'user' ? 'Você' : 'GPT'}:</strong> {msg.content}
+            <strong>{msg.role === 'user' ? 'Você' : 'Assistente xande'}:</strong> {msg.content}
           </Message>
         ))}
-        {loading && <Spinner />}
+        {loading && (
+          <Message role="assistant">
+            <strong>Assistente xande:</strong> {typingMessage}
+          </Message>
+        )}
         {error && <p style={{ color: 'red' }}>{error}</p>}
       </ChatDisplay>
       <InputContainer>

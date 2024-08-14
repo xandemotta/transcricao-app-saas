@@ -39,14 +39,13 @@ const conversations = {};  // Armazena as sessões de conversa na memória
 
 app.post('/api/chat', async (req, res) => {
   try {
-      const sessionId = req.body.sessionId || req.body.userId;  // Identifica a sessão do usuário, usando userId como fallback
+      const sessionId = req.body.sessionId || req.body.userId;
       const message = req.body.message;
 
       if (!sessionId) {
           return res.status(400).json({ error: 'Session ID ou User ID não fornecido' });
       }
 
-      // Inicializa a sessão se não existir
       if (!conversations[sessionId]) {
           conversations[sessionId] = {
               history: [],
@@ -55,41 +54,57 @@ app.post('/api/chat', async (req, res) => {
       }
 
       const conversation = conversations[sessionId];
-
-      // Adiciona a nova mensagem do usuário ao histórico
       conversation.history.push({ number: conversation.messageCount, role: "user", content: message });
       conversation.messageCount++;
 
-      // Chama a API da OpenAI com o histórico completo
-      const response = await axios.post(
-          'https://api.openai.com/v1/chat/completions',
-          {
-              model: "gpt-4",
-              messages: [
-                  { role: "system", content: "Você é um assistente que responde conforme o histórico de mensagens." },
-                  ...conversation.history.map(msg => ({ role: msg.role, content: msg.content }))
-              ],
-              temperature: 0.7,
-              max_tokens: 256,
-              top_p: 1,
-              frequency_penalty: 0,
-              presence_penalty: 0,
-          },
-          {
-              headers: {
-                  Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      let fullResponse = '';
+      let done = false;
+
+      while (!done) {
+          const response = await axios.post(
+              'https://api.openai.com/v1/chat/completions',
+              {
+                  model: "gpt-4",
+                  messages: [
+                      { role: "system", content: "Você é um assistente que responde conforme o histórico de mensagens." },
+                      ...conversation.history.map(msg => ({ role: msg.role, content: msg.content }))
+                  ],
+                  temperature: 0.7,
+                  max_tokens: 426,
+                  top_p: 1,
+                  frequency_penalty: 0,
+                  presence_penalty: 0,
+              },
+              {
+                  headers: {
+                      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+                  }
               }
+          );
+
+          const assistantResponse = response.data.choices[0].message.content;
+
+          fullResponse += assistantResponse;
+
+          // Verificar se a resposta foi truncada
+          if (assistantResponse.endsWith('.') || response.data.choices[0].finish_reason === 'stop') {
+              done = true;
+          } else {
+              conversation.history.push({ number: conversation.messageCount, role: "assistant", content: assistantResponse });
+              conversation.messageCount++;
           }
-      );
+      }
 
-      const assistantResponse = response.data.choices[0].message.content;
-
-      // Adiciona a resposta do assistente ao histórico
-      conversation.history.push({ number: conversation.messageCount, role: "assistant", content: assistantResponse });
+      conversation.history.push({ number: conversation.messageCount, role: "assistant", content: fullResponse });
       conversation.messageCount++;
 
-      // Retorna a resposta para o frontend (não salva no banco aqui)
-      res.json({ message: assistantResponse });
+      await Conversa.create({
+          userId: req.body.userId,
+          mensagemUsuario: message,
+          mensagemAssistente: fullResponse
+      });
+
+      res.json({ message: fullResponse });
   } catch (error) {
       console.error('Erro ao comunicar com a API da OpenAI:', error.message);
       res.status(500).send('Erro ao comunicar com a API da OpenAI');
@@ -98,11 +113,12 @@ app.post('/api/chat', async (req, res) => {
 
 
 
-
 app.get('/api/conversas/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
+    console.log("Buscando conversas para o userId:", userId); // Log para verificar o userId
     const conversas = await Conversa.findAll({ where: { userId: userId } });
+    console.log("Conversas encontradas:", conversas); // Log para verificar o retorno do banco de dados
     res.json({ conversas });
   } catch (error) {
     console.error('Erro ao buscar conversas:', error.message);
@@ -110,30 +126,10 @@ app.get('/api/conversas/:userId', async (req, res) => {
   }
 });
 
+
 app.post('/api/conversas', async (req, res) => {
-  try {
-    const { userId, messages } = req.body;
-
-    if (!userId) {
-      return res.status(400).json({ error: 'User ID não fornecido' });
-    }
-
-    for (let i = 0; i < messages.length; i++) {
-      const { role, content } = messages[i];
-      if (role === 'user') {
-        await Conversa.create({
-          userId: userId,
-          mensagemUsuario: content,
-          mensagemAssistente: messages[i + 1]?.content || '',
-        });
-      }
-    }
-
-    res.status(201).json({ message: 'Conversa salva com sucesso.' });
-  } catch (error) {
-    console.error('Erro ao salvar a conversa:', error.message);
-    res.status(500).send('Erro ao salvar a conversa');
-  }
+  // Este endpoint pode ser usado para outras operações, mas não fará inserções no banco de dados para evitar duplicação.
+  res.status(201).json({ message: 'Operação de conversa processada com sucesso.' });
 });
 
 app.delete('/api/conversas/:userId', async (req, res) => {

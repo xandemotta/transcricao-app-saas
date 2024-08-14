@@ -72,11 +72,11 @@ const App = () => {
               <h1>Menu</h1>
               <NavLink to="/">Home</NavLink>
               <NavLink to="/mp3-to-text">MP3 para Texto</NavLink>
-              <NavLink to="/chat">Chat</NavLink>
+              {/* <NavLink to="/chat">Chat</NavLink> */}
               <NavLink to="/features">Features</NavLink>
               <NavLink to="/chat-2">Chat 2</NavLink>
               <NavLink to="/criar-conta">Criar Conta</NavLink>
-              <NavLink to="/chat-3">Chat 3</NavLink>
+              {/* <NavLink to="/chat-3">Chat 3</NavLink> */}
               <button onClick={handleLogout}>Logout</button>
             </Sidebar>
             <Content>
