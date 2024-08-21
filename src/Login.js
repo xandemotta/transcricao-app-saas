@@ -48,7 +48,7 @@ const Login = ({ onLogin }) => {
 
   const handleLogin = async () => {
     try {
-        const response = await fetch('https://da50-143-137-173-27.ngrok-free.app/verificar_acesso', {
+        const response = await fetch('http://localhost:5002/verificar_acesso', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ cliente_id: clienteId, senha })

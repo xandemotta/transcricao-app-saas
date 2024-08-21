@@ -16,6 +16,8 @@ const stream = require('stream');
 const wav = require('node-wav');
 const axios = require('axios');
 const User = require('./src/models/User');
+const cron = require('node-cron');
+const { google } = require('googleapis');
 
 require('dotenv').config();
 const OpenAI = require('openai');
@@ -37,81 +39,206 @@ app.use(express.static(path.join(__dirname, 'build')));
 const client = new SpeechClient();
 const conversations = {};  // Armazena as sessões de conversa na memória
 
+// YouTube API setup (requires OAuth 2.0 setup)
+const youtube = google.youtube({
+  version: 'v3',
+  auth: process.env.YOUTUBE_API_KEY,
+});
+
+// Rota para agendar upload de vídeos
+// Rota para agendar upload de múltiplos vídeos
+app.post('/api/schedule-upload', upload.array('files'), async (req, res) => {
+  const titles = req.body['titles[]'];
+  const descriptions = req.body['descriptions[]'];
+  const uploadDates = req.body['uploadDates[]'];
+
+  if (!req.files || req.files.length === 0) {
+    return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+  }
+
+  const schedules = [];
+
+  req.files.forEach((file, index) => {
+    const filePath = path.join(__dirname, 'uploads', file.filename);
+    const schedule = {
+      title: titles[index],
+      description: descriptions[index],
+      filePath: filePath,
+      uploadDate: uploadDates[index],
+    };
+    fs.writeFileSync(`schedules/${uploadDates[index]}_${file.originalname}.json`, JSON.stringify(schedule));
+    schedules.push(schedule);
+
+    // Schedule the upload
+    cron.schedule('0 0 * * *', () => {
+      const today = format(new Date(), 'dd/MM/yyyy');
+      if (today === schedule.uploadDate) {
+        uploadToYouTube(schedule);
+      }
+    });
+  });
+
+  res.json({ message: 'Uploads agendados com sucesso!', schedules });
+});
+
+// Função para realizar o upload para o YouTube
+const uploadToYouTube = async (schedule) => {
+  try {
+    const videoPath = schedule.filePath;
+    const response = await youtube.videos.insert({
+      part: 'snippet,status',
+      requestBody: {
+        snippet: {
+          title: schedule.title,
+          description: schedule.description,
+          tags: ['tutorial', 'example'],
+          categoryId: '22', // Categoria "People & Blogs"
+        },
+        status: {
+          privacyStatus: 'public',
+        },
+      },
+      media: {
+        body: fs.createReadStream(videoPath),
+      },
+    });
+
+    console.log('Upload concluído:', response.data);
+  } catch (error) {
+    console.error('Erro ao realizar o upload:', error);
+  }
+};
+
+// Resto do código existente do backend
 app.post('/api/chat', async (req, res) => {
   try {
-      const sessionId = req.body.sessionId || req.body.userId;
-      const message = req.body.message;
+    const sessionId = req.body.sessionId || req.body.userId;
+    const message = req.body.message;
 
-      if (!sessionId) {
-          return res.status(400).json({ error: 'Session ID ou User ID não fornecido' });
-      }
+    if (!sessionId) {
+      return res.status(400).json({ error: 'Session ID ou User ID não fornecido' });
+    }
 
-      if (!conversations[sessionId]) {
-          conversations[sessionId] = {
-              history: [],
-              messageCount: 1
-          };
-      }
+    if (!conversations[sessionId]) {
+      conversations[sessionId] = {
+        history: [],
+        messageCount: 1
+      };
+    }
 
-      const conversation = conversations[sessionId];
-      conversation.history.push({ number: conversation.messageCount, role: "user", content: message });
-      conversation.messageCount++;
+    const conversation = conversations[sessionId];
+    conversation.history.push({ number: conversation.messageCount, role: "user", content: message });
+    conversation.messageCount++;
 
-      let fullResponse = '';
-      let done = false;
+    let fullResponse = '';
+    let done = false;
 
-      while (!done) {
-          const response = await axios.post(
-              'https://api.openai.com/v1/chat/completions',
-              {
-                  model: "gpt-4",
-                  messages: [
-                      { role: "system", content: "Você é um assistente que responde conforme o histórico de mensagens." },
-                      ...conversation.history.map(msg => ({ role: msg.role, content: msg.content }))
-                  ],
-                  temperature: 0.7,
-                  max_tokens: 426,
-                  top_p: 1,
-                  frequency_penalty: 0,
-                  presence_penalty: 0,
-              },
-              {
-                  headers: {
-                      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-                  }
-              }
-          );
-
-          const assistantResponse = response.data.choices[0].message.content;
-
-          fullResponse += assistantResponse;
-
-          // Verificar se a resposta foi truncada
-          if (assistantResponse.endsWith('.') || response.data.choices[0].finish_reason === 'stop') {
-              done = true;
-          } else {
-              conversation.history.push({ number: conversation.messageCount, role: "assistant", content: assistantResponse });
-              conversation.messageCount++;
+    while (!done) {
+      const response = await axios.post(
+        'https://api.openai.com/v1/chat/completions',
+        {
+          model: "gpt-4",
+          messages: [
+            { role: "system", content: "Você é um assistente que responde conforme o histórico de mensagens." },
+            ...conversation.history.map(msg => ({ role: msg.role, content: msg.content }))
+          ],
+          temperature: 0.7,
+          max_tokens: 426,
+          top_p: 1,
+          frequency_penalty: 0,
+          presence_penalty: 0,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
           }
+        }
+      );
+
+      const assistantResponse = response.data.choices[0].message.content;
+
+      fullResponse += assistantResponse;
+
+      if (assistantResponse.endsWith('.') || response.data.choices[0].finish_reason === 'stop') {
+        done = true;
+      } else {
+        conversation.history.push({ number: conversation.messageCount, role: "assistant", content: assistantResponse });
+        conversation.messageCount++;
       }
+    }
 
-      conversation.history.push({ number: conversation.messageCount, role: "assistant", content: fullResponse });
-      conversation.messageCount++;
+    conversation.history.push({ number: conversation.messageCount, role: "assistant", content: fullResponse });
+    conversation.messageCount++;
 
-      await Conversa.create({
-          userId: req.body.userId,
-          mensagemUsuario: message,
-          mensagemAssistente: fullResponse
-      });
+    await Conversa.create({
+      userId: req.body.userId,
+      mensagemUsuario: message,
+      mensagemAssistente: fullResponse
+    });
 
-      res.json({ message: fullResponse });
+    res.json({ message: fullResponse, continue: !done });
   } catch (error) {
-      console.error('Erro ao comunicar com a API da OpenAI:', error.message);
-      res.status(500).send('Erro ao comunicar com a API da OpenAI');
+    console.error('Erro ao comunicar com a API da OpenAI:', error.message);
+    res.status(500).send('Erro ao comunicar com a API da OpenAI');
   }
 });
 
+app.post('/api/continue', async (req, res) => {
+  try {
+    const sessionId = req.body.sessionId;
 
+    if (!sessionId || !conversations[sessionId]) {
+      return res.status(400).json({ error: 'Session ID inválido ou não encontrado' });
+    }
+
+    const conversation = conversations[sessionId];
+
+    let fullResponse = '';
+    let done = false;
+
+    while (!done) {
+      const response = await axios.post(
+        'https://api.openai.com/v1/chat/completions',
+        {
+          model: "gpt-4",
+          messages: [
+            { role: "system", content: "Você é um assistente que responde conforme o histórico de mensagens." },
+            ...conversation.history.map(msg => ({ role: msg.role, content: msg.content }))
+          ],
+          temperature: 0.7,
+          max_tokens: 426,
+          top_p: 1,
+          frequency_penalty: 0,
+          presence_penalty: 0,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          }
+        }
+      );
+
+      const assistantResponse = response.data.choices[0].message.content;
+
+      fullResponse += assistantResponse;
+
+      if (assistantResponse.endsWith('.') || response.data.choices[0].finish_reason === 'stop') {
+        done = true;
+      } else {
+        conversation.history.push({ number: conversation.messageCount, role: "assistant", content: assistantResponse });
+        conversation.messageCount++;
+      }
+    }
+
+    conversation.history.push({ number: conversation.messageCount, role: "assistant", content: fullResponse });
+    conversation.messageCount++;
+
+    res.json({ message: fullResponse, continue: !done });
+  } catch (error) {
+    console.error('Erro ao continuar a geração:', error.message);
+    res.status(500).send('Erro ao continuar a geração');
+  }
+});
 
 app.get('/api/conversas/:userId', async (req, res) => {
   try {
@@ -125,7 +252,6 @@ app.get('/api/conversas/:userId', async (req, res) => {
     res.status(500).send('Erro ao buscar conversas');
   }
 });
-
 
 app.post('/api/conversas', async (req, res) => {
   // Este endpoint pode ser usado para outras operações, mas não fará inserções no banco de dados para evitar duplicação.
